@@ -1,5 +1,5 @@
 {
-  "name": "dot-cat-walker",
+  "name": "cat-walker",
   "private": true,
   "version": "1.0.0",
   "type": "module",
@@ -7,8 +7,7 @@
     "build": "tsc -p tsconfig.json"
   },
   "devDependencies": {
-    "typescript": "^5.0.0",
-    "@types/chrome": "^0.1.36"
+    "@types/chrome": "^0.1.36",
+    "typescript": "^5.9.3"
   }
 }
-

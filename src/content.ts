@@ -50,10 +50,16 @@
   const CAT_H = FRAME_H * SCALE;
 
   let last = performance.now();
+  document.addEventListener("visibilitychange", () => {
+    last = performance.now();
+  });
 
   function tick(now: number) {
-    const dt = (now - last) / 1000;
+    let dt = (now - last) / 1000;
     last = now;
+
+    // 탭 복귀시 폭주 방지 (핵심)
+    dt = Math.min(dt, 0.033); // 최대 33ms (약 30fps)
 
     const w = window.innerWidth;
     const h = window.innerHeight;
