@@ -1,6 +1,7 @@
 // src/content.ts
 (() => {
-  const KEY = "catWalkerEnabled";
+  const ENABLED_KEY = "catWalkerEnabled";
+  const SPRITE_KEY = "catSprite";
   const ROOT_ID = "cat-walker-root";
   const CTRL_KEY = "__catWalkerCtrl__";
 
@@ -8,7 +9,6 @@
   const FRAME_W = 32;
   const FRAME_H = 32;
   const SCALE = 4;
-  const SPRITE_PATH = "assets/cat.png";
 
   // ====== 상태 머신 설정 ======
   const enum CatState {
@@ -106,10 +106,11 @@
   type Ctrl = {
     enabled: boolean;
     cleanup: null | (() => void);
+    currentSprite: string;
   };
 
   const w = window as unknown as Record<string, Ctrl>;
-  if (!w[CTRL_KEY]) w[CTRL_KEY] = { enabled: true, cleanup: null };
+  if (!w[CTRL_KEY]) w[CTRL_KEY] = { enabled: true, cleanup: null, currentSprite: "cat1" };
   const ctrl = w[CTRL_KEY];
 
   function removeExistingRoot() {
@@ -117,14 +118,14 @@
     if (existing) existing.remove();
   }
 
-  function startCat(): () => void {
+  function startCat(spriteName: string): () => void {
     // 중복 생성 방지
     if (document.getElementById(ROOT_ID)) {
-      // 이미 있으면 cleanup만 만들어서 반환
       return () => removeExistingRoot();
     }
 
-    const spriteUrl = chrome.runtime.getURL(SPRITE_PATH);
+    const spritePath = `assets/${spriteName}.png`;
+    const spriteUrl = chrome.runtime.getURL(spritePath);
 
     const root = document.createElement("div");
     root.id = ROOT_ID;
@@ -224,7 +225,6 @@
     document.addEventListener("mouseup", onMouseUp);
 
     function enterState(ns: CatState) {
-      // savedVx/savedVy는 tick()에서 이미 speedMul=1 기준으로 정규화됨
       state.catState = ns;
       state.stateTimer = stateDuration(ns);
       state.frame = 0;
@@ -232,12 +232,10 @@
 
       const cfg = STATE_CONFIG[ns];
       if (cfg.speedMul > 0) {
-        // 이동 상태 진입 — 저장된 방향 복원 + speedMul 적용
         state.vx = state.savedVx * cfg.speedMul;
         state.vy = state.savedVy * cfg.speedMul;
         state.facingLeft = state.vx < 0;
       } else {
-        // 정지 상태 진입 — 멈춤
         state.vx = 0;
         state.vy = 0;
       }
@@ -247,8 +245,7 @@
       let dt = (now - last) / 1000;
       last = now;
 
-      // 탭 전환/백그라운드로 누적된 큰 dt 제한 (버그 방지)
-      dt = Math.min(dt, 0.033); // ~30fps 기준
+      dt = Math.min(dt, 0.033);
 
       const cfg = state.dragging
         ? STATE_CONFIG[CatState.DRAG]
@@ -256,12 +253,10 @@
           ? STATE_CONFIG[CatState.ONENTER]
           : STATE_CONFIG[state.catState];
 
-      // 호버/드래그 중이면 타이머 정지
       if (!state.hovered && !state.dragging) {
         state.stateTimer -= dt;
       }
       if (state.stateTimer <= 0) {
-        // 이동 중이면 savedV 갱신 (speedMul=1 기준)
         if (cfg.speedMul > 0) {
           state.savedVx = state.vx / cfg.speedMul;
           state.savedVy = state.vy / cfg.speedMul;
@@ -275,7 +270,6 @@
       const w = window.innerWidth;
       const h = window.innerHeight;
 
-      // 이동 (speedMul > 0 일 때만)
       if (cfg.speedMul > 0) {
         state.x += state.vx * dt;
         state.y += state.vy * dt;
@@ -299,7 +293,6 @@
         }
       }
 
-      // 애니메이션 프레임
       state.frameAcc += dt;
       const frameInterval = 1 / cfg.fps;
       if (state.frameAcc >= frameInterval) {
@@ -309,7 +302,6 @@
 
       cat.style.backgroundPosition = `-${(state.frame + cfg.frameOffset) * FRAME_W}px -${cfg.row * FRAME_H}px`;
 
-      // 진행방향 flip (정지 중에도 facingLeft 유지)
       const flipX = state.facingLeft ? -1 : 1;
       cat.style.transform = `translate3d(${state.x}px, ${state.y}px, 0) scale(${SCALE * flipX}, ${SCALE})`;
 
@@ -318,7 +310,6 @@
 
     rafId = requestAnimationFrame(tick);
 
-    // cleanup
     return () => {
       cancelAnimationFrame(rafId);
       document.removeEventListener("visibilitychange", onVisibility);
@@ -329,6 +320,19 @@
       document.removeEventListener("mouseup", onMouseUp);
       root.remove();
     };
+  }
+
+  function restartCat(spriteName: string) {
+    if (ctrl.cleanup) {
+      ctrl.cleanup();
+      ctrl.cleanup = null;
+    } else {
+      removeExistingRoot();
+    }
+    ctrl.currentSprite = spriteName;
+    if (ctrl.enabled) {
+      ctrl.cleanup = startCat(spriteName);
+    }
   }
 
   async function applyEnabled(enabled: boolean) {
@@ -345,22 +349,33 @@
     }
 
     if (!ctrl.cleanup) {
-      ctrl.cleanup = startCat();
+      ctrl.cleanup = startCat(ctrl.currentSprite);
     }
   }
 
   async function init() {
-    const result = await chrome.storage.local.get(KEY);
-    const enabled = typeof result[KEY] === "boolean" ? result[KEY] : true;
+    const result = await chrome.storage.local.get([ENABLED_KEY, SPRITE_KEY]);
+    const enabled = typeof result[ENABLED_KEY] === "boolean" ? result[ENABLED_KEY] : true;
+    const sprite = typeof result[SPRITE_KEY] === "string" ? result[SPRITE_KEY] : "cat1";
+
+    ctrl.currentSprite = sprite;
     await applyEnabled(enabled);
 
-    // background에서 토글되면 이 이벤트가 모든 탭의 content script에 전달됨
     chrome.storage.onChanged.addListener((changes, areaName) => {
       if (areaName !== "local") return;
-      if (!changes[KEY]) return;
-      const next = changes[KEY].newValue;
-      if (typeof next === "boolean") {
-        void applyEnabled(next);
+
+      if (changes[SPRITE_KEY]) {
+        const next = changes[SPRITE_KEY].newValue;
+        if (typeof next === "string" && next !== ctrl.currentSprite) {
+          restartCat(next);
+        }
+      }
+
+      if (changes[ENABLED_KEY]) {
+        const next = changes[ENABLED_KEY].newValue;
+        if (typeof next === "boolean") {
+          void applyEnabled(next);
+        }
       }
     });
   }
