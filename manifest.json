@@ -5,7 +5,8 @@
   "description": "A tiny pixel cat walks around on every page.",
   "permissions": ["storage"],
   "action": {
-    "default_title": "Toggle Cat Walker"
+    "default_title": "Toggle Cat Walker",
+    "default_popup": "popup.html"
   },
   "background": {
     "service_worker": "dist/background.js",
@@ -20,7 +21,7 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["assets/cat.png"],
+      "resources": ["assets/cat1.png", "assets/cat2.png", "assets/cat3.png"],
       "matches": ["<all_urls>"]
     }
   ]
