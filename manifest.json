@@ -1,8 +1,16 @@
 {
   "manifest_version": 3,
   "name": "Dot Cat Walker",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A tiny pixel cat walks around on every page.",
+  "permissions": ["storage"],
+  "action": {
+    "default_title": "Toggle Cat Walker"
+  },
+  "background": {
+    "service_worker": "dist/background.js",
+    "type": "module"
+  },
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
@@ -10,7 +18,6 @@
       "run_at": "document_idle"
     }
   ],
-  "host_permissions": ["<all_urls>"],
   "web_accessible_resources": [
     {
       "resources": ["assets/cat.png"],
