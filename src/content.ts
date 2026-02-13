@@ -11,11 +11,18 @@
   const SPRITE_PATH = "assets/cat.png";
 
   // ====== 상태 머신 설정 ======
-  const enum CatState { IDLE, WALK, RUN, SLEEP }
+  const enum CatState {
+    IDLE,
+    WALK,
+    SLEEP,
+    ONENTER,
+    DRAG,
+  }
 
   type StateConfig = {
     row: number;
     frameCount: number;
+    frameOffset: number;
     fps: number;
     speedMul: number;
     durationMin: number;
@@ -23,10 +30,51 @@
   };
 
   const STATE_CONFIG: Record<CatState, StateConfig> = {
-    [CatState.IDLE]:  { row: 0, frameCount: 4, fps: 4,  speedMul: 0,   durationMin: 2,   durationMax: 5 },
-    [CatState.WALK]:  { row: 6, frameCount: 6, fps: 10, speedMul: 1,   durationMin: 3,   durationMax: 8 },
-    [CatState.RUN]:   { row: 7, frameCount: 6, fps: 14, speedMul: 2.2, durationMin: 1.5, durationMax: 4 },
-    [CatState.SLEEP]: { row: 3, frameCount: 4, fps: 2,  speedMul: 0,   durationMin: 4,   durationMax: 10 },
+    [CatState.IDLE]: {
+      row: 28,
+      frameCount: 3,
+      frameOffset: 0,
+      fps: 4,
+      speedMul: 0,
+      durationMin: 2,
+      durationMax: 5,
+    },
+    [CatState.WALK]: {
+      row: 6,
+      frameCount: 6,
+      frameOffset: 0,
+      fps: 10,
+      speedMul: 1,
+      durationMin: 3,
+      durationMax: 8,
+    },
+    [CatState.SLEEP]: {
+      row: 12,
+      frameCount: 2,
+      frameOffset: 0,
+      fps: 2,
+      speedMul: 0,
+      durationMin: 4,
+      durationMax: 10,
+    },
+    [CatState.ONENTER]: {
+      row: 35,
+      frameCount: 8,
+      frameOffset: 0,
+      fps: 10,
+      speedMul: 0,
+      durationMin: 4,
+      durationMax: 10,
+    },
+    [CatState.DRAG]: {
+      row: 52,
+      frameCount: 3,
+      frameOffset: 1,
+      fps: 6,
+      speedMul: 0,
+      durationMin: 0,
+      durationMax: 0,
+    },
   };
 
   function randRange(min: number, max: number) {
@@ -36,10 +84,16 @@
   function nextState(current: CatState): CatState {
     const r = Math.random();
     switch (current) {
-      case CatState.WALK:  return r < 0.85 ? CatState.IDLE : CatState.RUN;
-      case CatState.IDLE:  return r < 0.60 ? CatState.WALK : CatState.SLEEP;
-      case CatState.RUN:   return CatState.WALK;
-      case CatState.SLEEP: return CatState.IDLE;
+      case CatState.WALK:
+        return r < 0.85 ? CatState.IDLE : CatState.WALK;
+      case CatState.IDLE:
+        return r < 0.6 ? CatState.WALK : CatState.SLEEP;
+      case CatState.SLEEP:
+        return CatState.IDLE;
+      case CatState.ONENTER:
+        return CatState.IDLE;
+      case CatState.DRAG:
+        return CatState.IDLE;
     }
   }
 
@@ -92,6 +146,8 @@
     cat.style.backgroundRepeat = "no-repeat";
     cat.style.imageRendering = "pixelated";
     cat.style.willChange = "transform, background-position";
+    cat.style.pointerEvents = "auto";
+    cat.style.cursor = "pointer";
     root.appendChild(cat);
 
     const initVx = (Math.random() < 0.5 ? -1 : 1) * (50 + Math.random() * 80);
@@ -109,6 +165,10 @@
       savedVx: initVx,
       savedVy: initVy,
       facingLeft: initVx < 0,
+      hovered: false,
+      dragging: false,
+      dragOffsetX: 0,
+      dragOffsetY: 0,
     };
 
     const CAT_W = FRAME_W * SCALE;
@@ -122,6 +182,46 @@
       last = performance.now();
     };
     document.addEventListener("visibilitychange", onVisibility);
+
+    const onMouseEnter = () => {
+      state.hovered = true;
+      state.frame = 0;
+      state.frameAcc = 0;
+    };
+    const onMouseLeave = () => {
+      state.hovered = false;
+      state.frame = 0;
+      state.frameAcc = 0;
+    };
+    cat.addEventListener("mouseenter", onMouseEnter);
+    cat.addEventListener("mouseleave", onMouseLeave);
+
+    const onMouseDown = (e: MouseEvent) => {
+      e.preventDefault();
+      state.dragging = true;
+      state.hovered = false;
+      state.frame = 0;
+      state.frameAcc = 0;
+      // 고양이 좌상단 기준 마우스 오프셋 저장
+      state.dragOffsetX = e.clientX - state.x;
+      state.dragOffsetY = e.clientY - state.y;
+      cat.style.cursor = "grabbing";
+    };
+    const onMouseMove = (e: MouseEvent) => {
+      if (!state.dragging) return;
+      state.x = e.clientX - state.dragOffsetX;
+      state.y = e.clientY - state.dragOffsetY;
+    };
+    const onMouseUp = () => {
+      if (!state.dragging) return;
+      state.dragging = false;
+      state.frame = 0;
+      state.frameAcc = 0;
+      cat.style.cursor = "pointer";
+    };
+    cat.addEventListener("mousedown", onMouseDown);
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
 
     function enterState(ns: CatState) {
       // savedVx/savedVy는 tick()에서 이미 speedMul=1 기준으로 정규화됨
@@ -150,10 +250,16 @@
       // 탭 전환/백그라운드로 누적된 큰 dt 제한 (버그 방지)
       dt = Math.min(dt, 0.033); // ~30fps 기준
 
-      const cfg = STATE_CONFIG[state.catState];
+      const cfg = state.dragging
+        ? STATE_CONFIG[CatState.DRAG]
+        : state.hovered
+          ? STATE_CONFIG[CatState.ONENTER]
+          : STATE_CONFIG[state.catState];
 
-      // 상태 타이머 & 전이
-      state.stateTimer -= dt;
+      // 호버/드래그 중이면 타이머 정지
+      if (!state.hovered && !state.dragging) {
+        state.stateTimer -= dt;
+      }
       if (state.stateTimer <= 0) {
         // 이동 중이면 savedV 갱신 (speedMul=1 기준)
         if (cfg.speedMul > 0) {
@@ -201,7 +307,7 @@
         state.frame = (state.frame + 1) % cfg.frameCount;
       }
 
-      cat.style.backgroundPosition = `-${state.frame * FRAME_W}px -${cfg.row * FRAME_H}px`;
+      cat.style.backgroundPosition = `-${(state.frame + cfg.frameOffset) * FRAME_W}px -${cfg.row * FRAME_H}px`;
 
       // 진행방향 flip (정지 중에도 facingLeft 유지)
       const flipX = state.facingLeft ? -1 : 1;
@@ -216,6 +322,11 @@
     return () => {
       cancelAnimationFrame(rafId);
       document.removeEventListener("visibilitychange", onVisibility);
+      cat.removeEventListener("mouseenter", onMouseEnter);
+      cat.removeEventListener("mouseleave", onMouseLeave);
+      cat.removeEventListener("mousedown", onMouseDown);
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
       root.remove();
     };
   }
