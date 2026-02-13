@@ -4,16 +4,49 @@
   const ROOT_ID = "cat-walker-root";
   const CTRL_KEY = "__catWalkerCtrl__";
 
-  // ====== 스프라이트 설정 (네 값 유지/조정) ======
+  // ====== 스프라이트 설정 ======
   const FRAME_W = 32;
   const FRAME_H = 32;
-  const FRAME_COUNT = 6;
   const SCALE = 4;
-  const FPS = 10;
   const SPRITE_PATH = "assets/cat.png";
 
-  // "walk만" 쓰려면 여기만 바꾸면 됨 (0부터 시작)
-  const WALK_ROW = 6; // 예: 1이면 두 번째 줄
+  // ====== 상태 머신 설정 ======
+  const enum CatState { IDLE, WALK, RUN, SLEEP }
+
+  type StateConfig = {
+    row: number;
+    frameCount: number;
+    fps: number;
+    speedMul: number;
+    durationMin: number;
+    durationMax: number;
+  };
+
+  const STATE_CONFIG: Record<CatState, StateConfig> = {
+    [CatState.IDLE]:  { row: 0, frameCount: 4, fps: 4,  speedMul: 0,   durationMin: 2,   durationMax: 5 },
+    [CatState.WALK]:  { row: 6, frameCount: 6, fps: 10, speedMul: 1,   durationMin: 3,   durationMax: 8 },
+    [CatState.RUN]:   { row: 7, frameCount: 6, fps: 14, speedMul: 2.2, durationMin: 1.5, durationMax: 4 },
+    [CatState.SLEEP]: { row: 3, frameCount: 4, fps: 2,  speedMul: 0,   durationMin: 4,   durationMax: 10 },
+  };
+
+  function randRange(min: number, max: number) {
+    return min + Math.random() * (max - min);
+  }
+
+  function nextState(current: CatState): CatState {
+    const r = Math.random();
+    switch (current) {
+      case CatState.WALK:  return r < 0.85 ? CatState.IDLE : CatState.RUN;
+      case CatState.IDLE:  return r < 0.60 ? CatState.WALK : CatState.SLEEP;
+      case CatState.RUN:   return CatState.WALK;
+      case CatState.SLEEP: return CatState.IDLE;
+    }
+  }
+
+  function stateDuration(cs: CatState): number {
+    const cfg = STATE_CONFIG[cs];
+    return randRange(cfg.durationMin, cfg.durationMax);
+  }
   // ============================================
 
   type Ctrl = {
@@ -61,13 +94,21 @@
     cat.style.willChange = "transform, background-position";
     root.appendChild(cat);
 
+    const initVx = (Math.random() < 0.5 ? -1 : 1) * (50 + Math.random() * 80);
+    const initVy = (Math.random() < 0.5 ? -1 : 1) * (20 + Math.random() * 60);
+
     const state = {
       x: Math.max(8, Math.random() * (window.innerWidth - FRAME_W * SCALE)),
       y: Math.max(8, Math.random() * (window.innerHeight - FRAME_H * SCALE)),
-      vx: (Math.random() < 0.5 ? -1 : 1) * (50 + Math.random() * 80),
-      vy: (Math.random() < 0.5 ? -1 : 1) * (20 + Math.random() * 60),
+      vx: initVx,
+      vy: initVy,
       frame: 0,
-      frameAcc: 0
+      frameAcc: 0,
+      catState: CatState.WALK as CatState,
+      stateTimer: stateDuration(CatState.WALK),
+      savedVx: initVx,
+      savedVy: initVy,
+      facingLeft: initVx < 0,
     };
 
     const CAT_W = FRAME_W * SCALE;
@@ -82,6 +123,26 @@
     };
     document.addEventListener("visibilitychange", onVisibility);
 
+    function enterState(ns: CatState) {
+      // savedVx/savedVy는 tick()에서 이미 speedMul=1 기준으로 정규화됨
+      state.catState = ns;
+      state.stateTimer = stateDuration(ns);
+      state.frame = 0;
+      state.frameAcc = 0;
+
+      const cfg = STATE_CONFIG[ns];
+      if (cfg.speedMul > 0) {
+        // 이동 상태 진입 — 저장된 방향 복원 + speedMul 적용
+        state.vx = state.savedVx * cfg.speedMul;
+        state.vy = state.savedVy * cfg.speedMul;
+        state.facingLeft = state.vx < 0;
+      } else {
+        // 정지 상태 진입 — 멈춤
+        state.vx = 0;
+        state.vy = 0;
+      }
+    }
+
     function tick(now: number) {
       let dt = (now - last) / 1000;
       last = now;
@@ -89,41 +150,61 @@
       // 탭 전환/백그라운드로 누적된 큰 dt 제한 (버그 방지)
       dt = Math.min(dt, 0.033); // ~30fps 기준
 
+      const cfg = STATE_CONFIG[state.catState];
+
+      // 상태 타이머 & 전이
+      state.stateTimer -= dt;
+      if (state.stateTimer <= 0) {
+        // 이동 중이면 savedV 갱신 (speedMul=1 기준)
+        if (cfg.speedMul > 0) {
+          state.savedVx = state.vx / cfg.speedMul;
+          state.savedVy = state.vy / cfg.speedMul;
+          state.facingLeft = state.vx < 0;
+        }
+        enterState(nextState(state.catState));
+        rafId = requestAnimationFrame(tick);
+        return;
+      }
+
       const w = window.innerWidth;
       const h = window.innerHeight;
 
-      state.x += state.vx * dt;
-      state.y += state.vy * dt;
+      // 이동 (speedMul > 0 일 때만)
+      if (cfg.speedMul > 0) {
+        state.x += state.vx * dt;
+        state.y += state.vy * dt;
 
-      if (state.x <= 0) {
-        state.x = 0;
-        state.vx *= -1;
-      } else if (state.x >= w - CAT_W) {
-        state.x = w - CAT_W;
-        state.vx *= -1;
-      }
+        if (state.x <= 0) {
+          state.x = 0;
+          state.vx *= -1;
+          state.facingLeft = state.vx < 0;
+        } else if (state.x >= w - CAT_W) {
+          state.x = w - CAT_W;
+          state.vx *= -1;
+          state.facingLeft = state.vx < 0;
+        }
 
-      if (state.y <= 0) {
-        state.y = 0;
-        state.vy *= -1;
-      } else if (state.y >= h - CAT_H) {
-        state.y = h - CAT_H;
-        state.vy *= -1;
+        if (state.y <= 0) {
+          state.y = 0;
+          state.vy *= -1;
+        } else if (state.y >= h - CAT_H) {
+          state.y = h - CAT_H;
+          state.vy *= -1;
+        }
       }
 
       // 애니메이션 프레임
       state.frameAcc += dt;
-      const frameInterval = 1 / FPS;
+      const frameInterval = 1 / cfg.fps;
       if (state.frameAcc >= frameInterval) {
         state.frameAcc -= frameInterval;
-        state.frame = (state.frame + 1) % FRAME_COUNT;
+        state.frame = (state.frame + 1) % cfg.frameCount;
       }
 
-      // ✅ WALK_ROW만 사용 (행 고정)
-      cat.style.backgroundPosition = `-${state.frame * FRAME_W}px -${WALK_ROW * FRAME_H}px`;
+      cat.style.backgroundPosition = `-${state.frame * FRAME_W}px -${cfg.row * FRAME_H}px`;
 
-      // 진행방향 flip
-      const flipX = state.vx < 0 ? -1 : 1;
+      // 진행방향 flip (정지 중에도 facingLeft 유지)
+      const flipX = state.facingLeft ? -1 : 1;
       cat.style.transform = `translate3d(${state.x}px, ${state.y}px, 0) scale(${SCALE * flipX}, ${SCALE})`;
 
       rafId = requestAnimationFrame(tick);
