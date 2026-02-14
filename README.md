@@ -141,7 +141,6 @@ cat-walker/
 
 - **스프라이트**: Last Tick ([itch.io](https://last-tick.itch.io))
 - **개발**: QWER-ASDF-1234
-- **AI 지원**: Claude (Anthropic)
 
 ---
 
