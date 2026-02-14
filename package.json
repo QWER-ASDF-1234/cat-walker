@@ -1,7 +1,7 @@
 {
   "name": "cat-walker",
   "private": true,
-  "version": "1.0.1",
+  "version": "2.4.0",
   "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.json"

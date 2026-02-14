@@ -3,13 +3,15 @@
   const ENABLED_KEY = "catWalkerEnabled";
   const SPRITE_KEY = "catSprite";
   const SELECTED_CATS_KEY = "selectedCats";
+  const PAWPRINTS_KEY = "pawprintsEnabled";
+  const CURSOR_MODE_KEY = "cursorMode";
+  const SCALE_KEY = "catScale";
   const ROOT_ID_PREFIX = "cat-walker-cat";
   const CTRL_KEY = "__catWalkerCtrl__";
 
   // ====== 스프라이트 설정 ======
   const FRAME_W = 32;
   const FRAME_H = 32;
-  const SCALE = 4;
 
   // ====== 상태 머신 설정 ======
   const enum CatState {
@@ -120,6 +122,10 @@
     dragging: boolean;
     dragOffsetX: number;
     dragOffsetY: number;
+    lastPawprintTime: number;
+    inCursorRange: boolean;
+    originalSavedVx?: number;
+    originalSavedVy?: number;
   };
 
   type CatInstance = {
@@ -135,10 +141,25 @@
   type Ctrl = {
     enabled: boolean;
     instances: Map<string, CatInstance>;
+    pawprintsEnabled: boolean;
+    cursorMode: "none" | "curious" | "shy";
+    mouseX: number;
+    mouseY: number;
+    scale: number;
   };
 
   const w = window as unknown as Record<string, Ctrl>;
-  if (!w[CTRL_KEY]) w[CTRL_KEY] = { enabled: true, instances: new Map() };
+  if (!w[CTRL_KEY]) {
+    w[CTRL_KEY] = {
+      enabled: true,
+      instances: new Map(),
+      pawprintsEnabled: false,
+      cursorMode: "none",
+      mouseX: 0,
+      mouseY: 0,
+      scale: 4,
+    };
+  }
   const ctrl = w[CTRL_KEY];
 
   // ====== 공유 애니메이션 루프 ======
@@ -184,9 +205,77 @@
       sharedLastTime = 0;
     }
   });
+
+  // 마우스 위치 추적 (커서 반응 모드용)
+  document.addEventListener("mousemove", (e) => {
+    ctrl.mouseX = e.clientX;
+    ctrl.mouseY = e.clientY;
+  });
+
+  // ====== 발자국 시스템 ======
+  const pawprints: Array<{ el: HTMLElement; createdAt: number }> = [];
+  const PAWPRINT_LIFETIME = 2000; // 2초
+
+  function createPawprint(
+    x: number,
+    y: number,
+    facingLeft: boolean,
+    spriteName: string,
+  ) {
+    if (!ctrl.pawprintsEnabled) return;
+
+    const pawTopResult = `${y + 50 - (4 / ctrl.scale) * 10}px`;
+    const pawSize = `${12 + 4 * ctrl.scale}px`;
+    const paw = document.createElement("div");
+    paw.style.position = "fixed";
+    paw.style.left = `${x - (ctrl.scale - 1) * 10}px`;
+    paw.style.top = pawTopResult;
+    paw.style.width = "12px";
+    paw.style.height = "12px";
+    paw.style.fontSize = pawSize;
+    paw.style.pointerEvents = "none";
+    paw.style.zIndex = "2147483646";
+    paw.style.opacity = "0.6";
+    paw.style.transition = "opacity 0.5s ease-out";
+    paw.textContent = "🐾";
+    paw.style.transform = facingLeft ? "scaleX(-1)" : "scaleX(1)";
+
+    // 고양이별 발자국 색상
+    if (spriteName === "cat2") {
+      paw.style.filter = "grayscale(100%) brightness(0.4)"; // 진한 회색
+    } else if (spriteName === "cat3") {
+      paw.style.filter = "grayscale(100%) brightness(1.2)"; // 밝은 회색
+    }
+    // cat1은 기본 색상 (필터 없음)
+
+    document.body.appendChild(paw);
+
+    const createdAt = performance.now();
+    pawprints.push({ el: paw, createdAt });
+
+    // 페이드아웃 시작
+    setTimeout(() => {
+      paw.style.opacity = "0";
+    }, PAWPRINT_LIFETIME - 500);
+
+    // 제거
+    setTimeout(() => {
+      paw.remove();
+      const index = pawprints.findIndex((p) => p.el === paw);
+      if (index !== -1) pawprints.splice(index, 1);
+    }, PAWPRINT_LIFETIME);
+  }
+
+  function cleanupPawprints() {
+    pawprints.forEach((p) => p.el.remove());
+    pawprints.length = 0;
+  }
   // ============================================
 
-  function startCatInstance(spriteName: string, instanceIndex: number): CatInstance {
+  function startCatInstance(
+    spriteName: string,
+    instanceIndex: number,
+  ): CatInstance {
     const uniqueId = `${spriteName}-${instanceIndex}`;
     const rootId = `${ROOT_ID_PREFIX}-${uniqueId}`;
 
@@ -224,7 +313,7 @@
     const offsetX = (instanceIndex * 200) % (window.innerWidth - 200);
     const offsetY = (instanceIndex * 100) % (window.innerHeight - 200);
 
-    const state = {
+    const state: CatState_Runtime = {
       x: Math.max(8, offsetX + Math.random() * 100),
       y: Math.max(8, offsetY + Math.random() * 100),
       vx: initVx,
@@ -240,10 +329,11 @@
       dragging: false,
       dragOffsetX: 0,
       dragOffsetY: 0,
+      lastPawprintTime: 0,
+      inCursorRange: false,
+      originalSavedVx: undefined,
+      originalSavedVy: undefined,
     };
-
-    const CAT_W = FRAME_W * SCALE;
-    const CAT_H = FRAME_H * SCALE;
 
     const onMouseEnter = () => {
       state.hovered = true;
@@ -326,6 +416,86 @@
 
       const w = window.innerWidth;
       const h = window.innerHeight;
+      const CAT_W = FRAME_W * ctrl.scale;
+      const CAT_H = FRAME_H * ctrl.scale;
+
+      // 커서 반응 모드 처리 (모든 상태에서 반응 가능, 마우스가 화면 안에 있을 때만)
+      const mouseInBounds =
+        ctrl.mouseX > 50 &&
+        ctrl.mouseX < w - 50 &&
+        ctrl.mouseY > 50 &&
+        ctrl.mouseY < h - 50;
+
+      const dx = ctrl.mouseX - (state.x + CAT_W / 2);
+      const dy = ctrl.mouseY - (state.y + CAT_H / 2);
+      const distToMouse = Math.sqrt(dx * dx + dy * dy);
+
+      // 커서 모드 범위 체크 (30-200px)
+      const shouldBeInRange =
+        ctrl.cursorMode !== "none" &&
+        !state.dragging &&
+        !state.hovered &&
+        mouseInBounds &&
+        distToMouse < 200 &&
+        distToMouse > 30;
+
+      if (shouldBeInRange) {
+        // WALK 상태가 아니면 깨워서 WALK 상태로 전환
+        if (state.catState !== CatState.WALK) {
+          enterState(CatState.WALK);
+          // 초기 속도가 없으면 랜덤하게 설정
+          if (state.savedVx === 0 && state.savedVy === 0) {
+            state.savedVx =
+              (Math.random() < 0.5 ? -1 : 1) * (50 + Math.random() * 80);
+            state.savedVy =
+              (Math.random() < 0.5 ? -1 : 1) * (20 + Math.random() * 60);
+          }
+        }
+
+        // 범위에 진입 시 원래 속도 저장
+        if (!state.inCursorRange) {
+          state.inCursorRange = true;
+          state.originalSavedVx = state.savedVx;
+          state.originalSavedVy = state.savedVy;
+        }
+
+        const angle = Math.atan2(dy, dx);
+        const baseSpeed = Math.sqrt(
+          state.originalSavedVx! * state.originalSavedVx! +
+            state.originalSavedVy! * state.originalSavedVy!,
+        );
+
+        if (ctrl.cursorMode === "curious") {
+          // 호기심: 마우스를 향해 이동 (1.5배 속도)
+          state.savedVx = Math.cos(angle) * baseSpeed;
+          state.savedVy = Math.sin(angle) * baseSpeed;
+          state.vx = state.savedVx * 1.5; // WALK의 speedMul은 1이므로 직접 1.5배
+          state.vy = state.savedVy * 1.5;
+          state.facingLeft = dx < 0;
+        } else if (ctrl.cursorMode === "shy") {
+          // 수줍음: 마우스에서 도망 (1.5배 속도)
+          state.savedVx = -Math.cos(angle) * baseSpeed;
+          state.savedVy = -Math.sin(angle) * baseSpeed;
+          state.vx = state.savedVx * 1.5;
+          state.vy = state.savedVy * 1.5;
+          state.facingLeft = dx > 0;
+        }
+      } else if (state.inCursorRange) {
+        // 범위를 벗어나면 원래 속도로 복원
+        state.inCursorRange = false;
+        if (
+          state.originalSavedVx !== undefined &&
+          state.originalSavedVy !== undefined
+        ) {
+          state.savedVx = state.originalSavedVx;
+          state.savedVy = state.originalSavedVy;
+          // 현재 상태의 speedMul 적용
+          const currentCfg = STATE_CONFIG[state.catState];
+          state.vx = state.savedVx * currentCfg.speedMul;
+          state.vy = state.savedVy * currentCfg.speedMul;
+          state.facingLeft = state.vx < 0;
+        }
+      }
 
       if (cfg.speedMul > 0) {
         state.x += state.vx * dt;
@@ -334,19 +504,30 @@
         if (state.x <= 0) {
           state.x = 0;
           state.vx *= -1;
+          state.savedVx *= -1;
           state.facingLeft = state.vx < 0;
         } else if (state.x >= w - CAT_W) {
           state.x = w - CAT_W;
           state.vx *= -1;
+          state.savedVx *= -1;
           state.facingLeft = state.vx < 0;
         }
 
         if (state.y <= 0) {
           state.y = 0;
           state.vy *= -1;
+          state.savedVy *= -1;
         } else if (state.y >= h - CAT_H) {
           state.y = h - CAT_H;
           state.vy *= -1;
+          state.savedVy *= -1;
+        }
+
+        // 발자국 생성 (시간 기반, 0.3초마다)
+        const now = performance.now();
+        if (now - state.lastPawprintTime > 300) {
+          state.lastPawprintTime = now;
+          createPawprint(state.x, state.y, state.facingLeft, spriteName);
         }
       }
 
@@ -360,7 +541,7 @@
       cat.style.backgroundPosition = `-${(state.frame + cfg.frameOffset) * FRAME_W}px -${cfg.row * FRAME_H}px`;
 
       const flipX = state.facingLeft ? -1 : 1;
-      cat.style.transform = `translate3d(${state.x}px, ${state.y}px, 0) scale(${SCALE * flipX}, ${SCALE})`;
+      cat.style.transform = `translate3d(${state.x}px, ${state.y}px, 0) scale(${ctrl.scale * flipX}, ${ctrl.scale})`;
     }
 
     const cleanupFn = () => {
@@ -386,6 +567,7 @@
   function stopAllCats() {
     ctrl.instances.forEach((instance) => instance.cleanup());
     ctrl.instances.clear();
+    cleanupPawprints();
     stopSharedLoop();
   }
 
@@ -467,7 +649,14 @@
   }
 
   async function init() {
-    const result = await chrome.storage.local.get([ENABLED_KEY, SELECTED_CATS_KEY, SPRITE_KEY]);
+    const result = await chrome.storage.local.get([
+      ENABLED_KEY,
+      SELECTED_CATS_KEY,
+      SPRITE_KEY,
+      PAWPRINTS_KEY,
+      CURSOR_MODE_KEY,
+      SCALE_KEY,
+    ]);
 
     // 마이그레이션: 기존 catSprite에서 selectedCats로
     let selectedCats: string[] = [];
@@ -483,7 +672,20 @@
       await chrome.storage.local.set({ [SELECTED_CATS_KEY]: selectedCats });
     }
 
-    const enabled = typeof result[ENABLED_KEY] === "boolean" ? result[ENABLED_KEY] : true;
+    const enabled =
+      typeof result[ENABLED_KEY] === "boolean" ? result[ENABLED_KEY] : true;
+    ctrl.pawprintsEnabled =
+      typeof result[PAWPRINTS_KEY] === "boolean"
+        ? result[PAWPRINTS_KEY]
+        : false;
+    const cursorMode = result[CURSOR_MODE_KEY];
+    ctrl.cursorMode =
+      cursorMode === "curious" || cursorMode === "shy" ? cursorMode : "none";
+
+    const scale = result[SCALE_KEY];
+    ctrl.scale =
+      typeof scale === "number" && scale >= 1 && scale <= 4 ? scale : 4;
+
     await applyEnabled(enabled, selectedCats);
 
     chrome.storage.onChanged.addListener((changes, areaName) => {
@@ -501,9 +703,35 @@
         if (typeof newEnabled === "boolean") {
           // enabled 토글 시 현재 선택된 고양이들을 다시 로드
           chrome.storage.local.get([SELECTED_CATS_KEY]).then((res) => {
-            const cats = Array.isArray(res[SELECTED_CATS_KEY]) ? res[SELECTED_CATS_KEY] : ["cat1"];
+            const cats = Array.isArray(res[SELECTED_CATS_KEY])
+              ? res[SELECTED_CATS_KEY]
+              : ["cat1"];
             void applyEnabled(newEnabled, cats);
           });
+        }
+      }
+
+      if (changes[PAWPRINTS_KEY]) {
+        const newPawprints = changes[PAWPRINTS_KEY].newValue;
+        if (typeof newPawprints === "boolean") {
+          ctrl.pawprintsEnabled = newPawprints;
+          if (!newPawprints) {
+            cleanupPawprints();
+          }
+        }
+      }
+
+      if (changes[CURSOR_MODE_KEY]) {
+        const newMode = changes[CURSOR_MODE_KEY].newValue;
+        if (newMode === "curious" || newMode === "shy" || newMode === "none") {
+          ctrl.cursorMode = newMode;
+        }
+      }
+
+      if (changes[SCALE_KEY]) {
+        const newScale = changes[SCALE_KEY].newValue;
+        if (typeof newScale === "number" && newScale >= 1 && newScale <= 4) {
+          ctrl.scale = newScale;
         }
       }
     });
