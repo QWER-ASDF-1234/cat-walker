@@ -5,7 +5,7 @@
   const SELECTED_CATS_KEY = "selectedCats";
   const PAWPRINTS_KEY = "pawprintsEnabled";
   const CURSOR_MODE_KEY = "cursorMode";
-  const SCALE_KEY = "catScale";
+  const CAT_SCALES_KEY = "catScales";
   const ROOT_ID_PREFIX = "cat-walker-cat";
   const CTRL_KEY = "__catWalkerCtrl__";
 
@@ -145,7 +145,7 @@
     cursorMode: "none" | "curious" | "shy";
     mouseX: number;
     mouseY: number;
-    scale: number;
+    catScales: Record<string, number>;
   };
 
   const w = window as unknown as Record<string, Ctrl>;
@@ -157,7 +157,7 @@
       cursorMode: "none",
       mouseX: 0,
       mouseY: 0,
-      scale: 4,
+      catScales: { cat1: 4, cat2: 4, cat3: 4 },
     };
   }
   const ctrl = w[CTRL_KEY];
@@ -224,11 +224,12 @@
   ) {
     if (!ctrl.pawprintsEnabled) return;
 
-    const pawTopResult = `${y + 50 - (4 / ctrl.scale) * 10}px`;
-    const pawSize = `${12 + 4 * ctrl.scale}px`;
+    const catScale = ctrl.catScales[spriteName] || 4;
+    const pawTopResult = `${y + 50 - (4 / catScale) * 10}px`;
+    const pawSize = `${12 + 4 * catScale}px`;
     const paw = document.createElement("div");
     paw.style.position = "fixed";
-    paw.style.left = `${x - (ctrl.scale - 1) * 10}px`;
+    paw.style.left = `${x - (catScale - 1) * 10}px`;
     paw.style.top = pawTopResult;
     paw.style.width = "12px";
     paw.style.height = "12px";
@@ -416,8 +417,9 @@
 
       const w = window.innerWidth;
       const h = window.innerHeight;
-      const CAT_W = FRAME_W * ctrl.scale;
-      const CAT_H = FRAME_H * ctrl.scale;
+      const catScale = ctrl.catScales[spriteName] || 4;
+      const CAT_W = FRAME_W * catScale;
+      const CAT_H = FRAME_H * catScale;
 
       // 커서 반응 모드 처리 (모든 상태에서 반응 가능, 마우스가 화면 안에 있을 때만)
       const mouseInBounds =
@@ -523,9 +525,9 @@
           state.savedVy *= -1;
         }
 
-        // 발자국 생성 (시간 기반, 0.3초마다)
+        // 발자국 생성 (시간 기반, 0.4초마다)
         const now = performance.now();
-        if (now - state.lastPawprintTime > 300) {
+        if (now - state.lastPawprintTime > 400) {
           state.lastPawprintTime = now;
           createPawprint(state.x, state.y, state.facingLeft, spriteName);
         }
@@ -541,7 +543,7 @@
       cat.style.backgroundPosition = `-${(state.frame + cfg.frameOffset) * FRAME_W}px -${cfg.row * FRAME_H}px`;
 
       const flipX = state.facingLeft ? -1 : 1;
-      cat.style.transform = `translate3d(${state.x}px, ${state.y}px, 0) scale(${ctrl.scale * flipX}, ${ctrl.scale})`;
+      cat.style.transform = `translate3d(${state.x}px, ${state.y}px, 0) scale(${catScale * flipX}, ${catScale})`;
     }
 
     const cleanupFn = () => {
@@ -655,7 +657,7 @@
       SPRITE_KEY,
       PAWPRINTS_KEY,
       CURSOR_MODE_KEY,
-      SCALE_KEY,
+      CAT_SCALES_KEY,
     ]);
 
     // 마이그레이션: 기존 catSprite에서 selectedCats로
@@ -682,9 +684,11 @@
     ctrl.cursorMode =
       cursorMode === "curious" || cursorMode === "shy" ? cursorMode : "none";
 
-    const scale = result[SCALE_KEY];
-    ctrl.scale =
-      typeof scale === "number" && scale >= 1 && scale <= 4 ? scale : 4;
+    // catScales 로드 (기본값: 각 고양이 4배)
+    const catScales = result[CAT_SCALES_KEY];
+    if (catScales && typeof catScales === "object") {
+      ctrl.catScales = { ...ctrl.catScales, ...catScales };
+    }
 
     await applyEnabled(enabled, selectedCats);
 
@@ -728,10 +732,10 @@
         }
       }
 
-      if (changes[SCALE_KEY]) {
-        const newScale = changes[SCALE_KEY].newValue;
-        if (typeof newScale === "number" && newScale >= 1 && newScale <= 4) {
-          ctrl.scale = newScale;
+      if (changes[CAT_SCALES_KEY]) {
+        const newScales = changes[CAT_SCALES_KEY].newValue;
+        if (newScales && typeof newScales === "object") {
+          ctrl.catScales = { ...ctrl.catScales, ...newScales };
         }
       }
     });

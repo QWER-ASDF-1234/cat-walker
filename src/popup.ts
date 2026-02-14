@@ -4,7 +4,7 @@ const SPRITE_KEY = "catSprite";
 const SELECTED_CATS_KEY = "selectedCats";
 const PAWPRINTS_KEY = "pawprintsEnabled";
 const CURSOR_MODE_KEY = "cursorMode";
-const SCALE_KEY = "catScale";
+const CAT_SCALES_KEY = "catScales";
 
 const toggle = document.getElementById("toggle") as HTMLInputElement;
 const catOptions = document.querySelectorAll<HTMLDivElement>(".cat-option");
@@ -12,10 +12,10 @@ const selectAllBtn = document.getElementById("select-all") as HTMLButtonElement;
 const clearAllBtn = document.getElementById("clear-all") as HTMLButtonElement;
 const pawprintsToggle = document.getElementById("pawprints-toggle") as HTMLInputElement;
 const cursorModeSelect = document.getElementById("cursor-mode") as HTMLSelectElement;
-const scaleSlider = document.getElementById("scale-slider") as HTMLInputElement;
-const scaleValue = document.getElementById("scale-value") as HTMLSpanElement;
+const scaleButtonContainers = document.querySelectorAll<HTMLDivElement>(".scale-buttons");
 
 let selectedCats: string[] = [];
+let catScales: Record<string, number> = { cat1: 4, cat2: 4, cat3: 4 };
 
 async function loadState() {
   const result = await chrome.storage.local.get([
@@ -24,12 +24,16 @@ async function loadState() {
     SPRITE_KEY,
     PAWPRINTS_KEY,
     CURSOR_MODE_KEY,
-    SCALE_KEY,
+    CAT_SCALES_KEY,
   ]);
   const enabled = typeof result[ENABLED_KEY] === "boolean" ? result[ENABLED_KEY] : true;
   const pawprints = typeof result[PAWPRINTS_KEY] === "boolean" ? result[PAWPRINTS_KEY] : false;
   const cursorMode = typeof result[CURSOR_MODE_KEY] === "string" ? result[CURSOR_MODE_KEY] : "none";
-  const scale = typeof result[SCALE_KEY] === "number" ? result[SCALE_KEY] : 4;
+
+  // catScales 로드
+  if (result[CAT_SCALES_KEY] && typeof result[CAT_SCALES_KEY] === "object") {
+    catScales = { ...catScales, ...result[CAT_SCALES_KEY] };
+  }
 
   // 마이그레이션 처리
   if (result[SELECTED_CATS_KEY] && Array.isArray(result[SELECTED_CATS_KEY])) {
@@ -46,8 +50,6 @@ async function loadState() {
   toggle.checked = enabled;
   pawprintsToggle.checked = pawprints;
   cursorModeSelect.value = cursorMode;
-  scaleSlider.value = scale.toString();
-  scaleValue.textContent = `${scale}x`;
   updateUI();
 }
 
@@ -56,6 +58,17 @@ function updateUI() {
     const cat = el.dataset.cat!;
     const isSelected = selectedCats.includes(cat);
     el.classList.toggle("selected", isSelected);
+  });
+
+  // 크기 버튼 업데이트
+  scaleButtonContainers.forEach((container) => {
+    const cat = container.dataset.cat!;
+    const currentScale = catScales[cat] || 4;
+    const buttons = container.querySelectorAll<HTMLButtonElement>(".scale-btn");
+    buttons.forEach((btn) => {
+      const scale = parseInt(btn.dataset.scale!, 10);
+      btn.classList.toggle("active", scale === currentScale);
+    });
   });
 }
 
@@ -105,10 +118,18 @@ cursorModeSelect.addEventListener("change", () => {
   chrome.storage.local.set({ [CURSOR_MODE_KEY]: cursorModeSelect.value });
 });
 
-scaleSlider.addEventListener("input", () => {
-  const scale = parseInt(scaleSlider.value, 10);
-  scaleValue.textContent = `${scale}x`;
-  chrome.storage.local.set({ [SCALE_KEY]: scale });
+// 크기 버튼 이벤트 리스너
+scaleButtonContainers.forEach((container) => {
+  const cat = container.dataset.cat!;
+  const buttons = container.querySelectorAll<HTMLButtonElement>(".scale-btn");
+  buttons.forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const scale = parseInt(btn.dataset.scale!, 10);
+      catScales[cat] = scale;
+      updateUI();
+      await chrome.storage.local.set({ [CAT_SCALES_KEY]: catScales });
+    });
+  });
 });
 
 loadState();
