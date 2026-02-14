@@ -2,7 +2,8 @@
 (() => {
   const ENABLED_KEY = "catWalkerEnabled";
   const SPRITE_KEY = "catSprite";
-  const ROOT_ID = "cat-walker-root";
+  const SELECTED_CATS_KEY = "selectedCats";
+  const ROOT_ID_PREFIX = "cat-walker-cat";
   const CTRL_KEY = "__catWalkerCtrl__";
 
   // ====== 스프라이트 설정 ======
@@ -103,32 +104,97 @@
   }
   // ============================================
 
+  type CatState_Runtime = {
+    x: number;
+    y: number;
+    vx: number;
+    vy: number;
+    frame: number;
+    frameAcc: number;
+    catState: CatState;
+    stateTimer: number;
+    savedVx: number;
+    savedVy: number;
+    facingLeft: boolean;
+    hovered: boolean;
+    dragging: boolean;
+    dragOffsetX: number;
+    dragOffsetY: number;
+  };
+
+  type CatInstance = {
+    sprite: string;
+    cleanup: () => void;
+    rootElement: HTMLElement;
+    index: number;
+    update: (dt: number) => void;
+    catElement: HTMLElement;
+    state: CatState_Runtime;
+  };
+
   type Ctrl = {
     enabled: boolean;
-    cleanup: null | (() => void);
-    currentSprite: string;
+    instances: Map<string, CatInstance>;
   };
 
   const w = window as unknown as Record<string, Ctrl>;
-  if (!w[CTRL_KEY]) w[CTRL_KEY] = { enabled: true, cleanup: null, currentSprite: "cat1" };
+  if (!w[CTRL_KEY]) w[CTRL_KEY] = { enabled: true, instances: new Map() };
   const ctrl = w[CTRL_KEY];
 
-  function removeExistingRoot() {
-    const existing = document.getElementById(ROOT_ID);
-    if (existing) existing.remove();
+  // ====== 공유 애니메이션 루프 ======
+  let sharedRafId = 0;
+  let sharedLastTime = 0;
+
+  function sharedAnimationLoop(now: number) {
+    if (ctrl.instances.size === 0) {
+      sharedRafId = 0;
+      return;
+    }
+
+    let dt = sharedLastTime === 0 ? 0 : (now - sharedLastTime) / 1000;
+    sharedLastTime = now;
+    dt = Math.min(dt, 0.033); // 최대 33ms로 제한
+
+    // 모든 고양이 업데이트 (배치 처리)
+    ctrl.instances.forEach((instance) => {
+      instance.update(dt);
+    });
+
+    sharedRafId = requestAnimationFrame(sharedAnimationLoop);
   }
 
-  function startCat(spriteName: string): () => void {
-    // 중복 생성 방지
-    if (document.getElementById(ROOT_ID)) {
-      return () => removeExistingRoot();
+  function startSharedLoop() {
+    if (sharedRafId === 0 && ctrl.instances.size > 0) {
+      sharedLastTime = 0;
+      sharedRafId = requestAnimationFrame(sharedAnimationLoop);
     }
+  }
+
+  function stopSharedLoop() {
+    if (sharedRafId !== 0) {
+      cancelAnimationFrame(sharedRafId);
+      sharedRafId = 0;
+      sharedLastTime = 0;
+    }
+  }
+
+  // 탭 가시성 변경 시 dt 폭주 방지
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) {
+      sharedLastTime = 0;
+    }
+  });
+  // ============================================
+
+  function startCatInstance(spriteName: string, instanceIndex: number): CatInstance {
+    const uniqueId = `${spriteName}-${instanceIndex}`;
+    const rootId = `${ROOT_ID_PREFIX}-${uniqueId}`;
 
     const spritePath = `assets/${spriteName}.png`;
     const spriteUrl = chrome.runtime.getURL(spritePath);
 
     const root = document.createElement("div");
-    root.id = ROOT_ID;
+    root.id = rootId;
     root.style.position = "fixed";
     root.style.left = "0";
     root.style.top = "0";
@@ -154,9 +220,13 @@
     const initVx = (Math.random() < 0.5 ? -1 : 1) * (50 + Math.random() * 80);
     const initVy = (Math.random() < 0.5 ? -1 : 1) * (20 + Math.random() * 60);
 
+    // 겹침 방지를 위한 초기 위치 분산
+    const offsetX = (instanceIndex * 200) % (window.innerWidth - 200);
+    const offsetY = (instanceIndex * 100) % (window.innerHeight - 200);
+
     const state = {
-      x: Math.max(8, Math.random() * (window.innerWidth - FRAME_W * SCALE)),
-      y: Math.max(8, Math.random() * (window.innerHeight - FRAME_H * SCALE)),
+      x: Math.max(8, offsetX + Math.random() * 100),
+      y: Math.max(8, offsetY + Math.random() * 100),
       vx: initVx,
       vy: initVy,
       frame: 0,
@@ -174,15 +244,6 @@
 
     const CAT_W = FRAME_W * SCALE;
     const CAT_H = FRAME_H * SCALE;
-
-    let last = performance.now();
-    let rafId = 0;
-
-    const onVisibility = () => {
-      // 탭 복귀 시 dt 폭주 방지
-      last = performance.now();
-    };
-    document.addEventListener("visibilitychange", onVisibility);
 
     const onMouseEnter = () => {
       state.hovered = true;
@@ -241,11 +302,8 @@
       }
     }
 
-    function tick(now: number) {
-      let dt = (now - last) / 1000;
-      last = now;
-
-      dt = Math.min(dt, 0.033);
+    function update(dt: number) {
+      if (dt === 0) return; // 첫 프레임 스킵
 
       const cfg = state.dragging
         ? STATE_CONFIG[CatState.DRAG]
@@ -263,7 +321,6 @@
           state.facingLeft = state.vx < 0;
         }
         enterState(nextState(state.catState));
-        rafId = requestAnimationFrame(tick);
         return;
       }
 
@@ -304,15 +361,9 @@
 
       const flipX = state.facingLeft ? -1 : 1;
       cat.style.transform = `translate3d(${state.x}px, ${state.y}px, 0) scale(${SCALE * flipX}, ${SCALE})`;
-
-      rafId = requestAnimationFrame(tick);
     }
 
-    rafId = requestAnimationFrame(tick);
-
-    return () => {
-      cancelAnimationFrame(rafId);
-      document.removeEventListener("visibilitychange", onVisibility);
+    const cleanupFn = () => {
       cat.removeEventListener("mouseenter", onMouseEnter);
       cat.removeEventListener("mouseleave", onMouseLeave);
       cat.removeEventListener("mousedown", onMouseDown);
@@ -320,61 +371,139 @@
       document.removeEventListener("mouseup", onMouseUp);
       root.remove();
     };
+
+    return {
+      sprite: spriteName,
+      cleanup: cleanupFn,
+      rootElement: root,
+      index: instanceIndex,
+      update: update,
+      catElement: cat,
+      state: state,
+    };
   }
 
-  function restartCat(spriteName: string) {
-    if (ctrl.cleanup) {
-      ctrl.cleanup();
-      ctrl.cleanup = null;
-    } else {
-      removeExistingRoot();
-    }
-    ctrl.currentSprite = spriteName;
-    if (ctrl.enabled) {
-      ctrl.cleanup = startCat(spriteName);
+  function stopAllCats() {
+    ctrl.instances.forEach((instance) => instance.cleanup());
+    ctrl.instances.clear();
+    stopSharedLoop();
+  }
+
+  function startAllCats(sprites: string[]) {
+    // 기존 인스턴스 모두 정리
+    stopAllCats();
+
+    if (sprites.length === 0) return;
+
+    // 동일 sprite 중복을 위한 카운터
+    const spriteCounts = new Map<string, number>();
+
+    sprites.forEach((sprite) => {
+      const index = spriteCounts.get(sprite) || 0;
+      spriteCounts.set(sprite, index + 1);
+
+      const uniqueId = `${sprite}-${index}`;
+      const instance = startCatInstance(sprite, index);
+      ctrl.instances.set(uniqueId, instance);
+    });
+
+    startSharedLoop();
+  }
+
+  function updateCats(newSprites: string[]) {
+    // 차이만 계산하여 효율적으로 업데이트
+    const oldIds = new Set(Array.from(ctrl.instances.keys()));
+    const newIds = new Set<string>();
+    const spriteCounts = new Map<string, number>();
+
+    // 새로운 ID 계산
+    newSprites.forEach((sprite) => {
+      const index = spriteCounts.get(sprite) || 0;
+      spriteCounts.set(sprite, index + 1);
+      newIds.add(`${sprite}-${index}`);
+    });
+
+    // 제거된 고양이 정리
+    oldIds.forEach((id) => {
+      if (!newIds.has(id)) {
+        const instance = ctrl.instances.get(id);
+        if (instance) {
+          instance.cleanup();
+          ctrl.instances.delete(id);
+        }
+      }
+    });
+
+    // 새로 추가된 고양이 생성
+    spriteCounts.clear();
+    newSprites.forEach((sprite) => {
+      const index = spriteCounts.get(sprite) || 0;
+      spriteCounts.set(sprite, index + 1);
+      const uniqueId = `${sprite}-${index}`;
+
+      if (!ctrl.instances.has(uniqueId)) {
+        const instance = startCatInstance(sprite, index);
+        ctrl.instances.set(uniqueId, instance);
+      }
+    });
+
+    // 공유 루프 관리
+    if (ctrl.instances.size === 0) {
+      stopSharedLoop();
+    } else if (ctrl.instances.size > 0 && sharedRafId === 0) {
+      startSharedLoop();
     }
   }
 
-  async function applyEnabled(enabled: boolean) {
+  async function applyEnabled(enabled: boolean, sprites: string[]) {
     ctrl.enabled = enabled;
 
     if (!enabled) {
-      if (ctrl.cleanup) {
-        ctrl.cleanup();
-        ctrl.cleanup = null;
-      } else {
-        removeExistingRoot();
-      }
+      stopAllCats();
       return;
     }
 
-    if (!ctrl.cleanup) {
-      ctrl.cleanup = startCat(ctrl.currentSprite);
-    }
+    startAllCats(sprites);
   }
 
   async function init() {
-    const result = await chrome.storage.local.get([ENABLED_KEY, SPRITE_KEY]);
-    const enabled = typeof result[ENABLED_KEY] === "boolean" ? result[ENABLED_KEY] : true;
-    const sprite = typeof result[SPRITE_KEY] === "string" ? result[SPRITE_KEY] : "cat1";
+    const result = await chrome.storage.local.get([ENABLED_KEY, SELECTED_CATS_KEY, SPRITE_KEY]);
 
-    ctrl.currentSprite = sprite;
-    await applyEnabled(enabled);
+    // 마이그레이션: 기존 catSprite에서 selectedCats로
+    let selectedCats: string[] = [];
+    if (result[SELECTED_CATS_KEY] && Array.isArray(result[SELECTED_CATS_KEY])) {
+      selectedCats = result[SELECTED_CATS_KEY];
+    } else if (result[SPRITE_KEY] && typeof result[SPRITE_KEY] === "string") {
+      // 기존 형식에서 마이그레이션
+      selectedCats = [result[SPRITE_KEY]];
+      await chrome.storage.local.set({ [SELECTED_CATS_KEY]: selectedCats });
+    } else {
+      // 기본값: cat1
+      selectedCats = ["cat1"];
+      await chrome.storage.local.set({ [SELECTED_CATS_KEY]: selectedCats });
+    }
+
+    const enabled = typeof result[ENABLED_KEY] === "boolean" ? result[ENABLED_KEY] : true;
+    await applyEnabled(enabled, selectedCats);
 
     chrome.storage.onChanged.addListener((changes, areaName) => {
       if (areaName !== "local") return;
 
-      if (changes[SPRITE_KEY]) {
-        const next = changes[SPRITE_KEY].newValue;
-        if (typeof next === "string" && next !== ctrl.currentSprite) {
-          restartCat(next);
+      if (changes[SELECTED_CATS_KEY]) {
+        const newCats = changes[SELECTED_CATS_KEY].newValue;
+        if (Array.isArray(newCats) && ctrl.enabled) {
+          updateCats(newCats);
         }
       }
 
       if (changes[ENABLED_KEY]) {
-        const next = changes[ENABLED_KEY].newValue;
-        if (typeof next === "boolean") {
-          void applyEnabled(next);
+        const newEnabled = changes[ENABLED_KEY].newValue;
+        if (typeof newEnabled === "boolean") {
+          // enabled 토글 시 현재 선택된 고양이들을 다시 로드
+          chrome.storage.local.get([SELECTED_CATS_KEY]).then((res) => {
+            const cats = Array.isArray(res[SELECTED_CATS_KEY]) ? res[SELECTED_CATS_KEY] : ["cat1"];
+            void applyEnabled(newEnabled, cats);
+          });
         }
       }
     });

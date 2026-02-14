@@ -59,6 +59,7 @@
       justify-content: center;
     }
     .cat-option {
+      position: relative;
       width: 56px;
       height: 56px;
       border: 2px solid #444;
@@ -83,6 +84,52 @@
       object-fit: none;
       object-position: 0px -192px;
     }
+    .checkbox-overlay {
+      position: absolute;
+      top: 4px;
+      right: 4px;
+      width: 18px;
+      height: 18px;
+      background: rgba(0, 0, 0, 0.6);
+      border-radius: 3px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      transition: opacity 0.15s;
+    }
+    .cat-option.selected .checkbox-overlay {
+      opacity: 1;
+      background: #4caf50;
+    }
+    .checkmark {
+      color: white;
+      font-size: 14px;
+      font-weight: bold;
+      line-height: 1;
+    }
+
+    /* Quick actions */
+    .quick-actions {
+      margin-top: 12px;
+      display: flex;
+      gap: 6px;
+    }
+    .quick-actions button {
+      flex: 1;
+      padding: 6px 8px;
+      font-size: 11px;
+      background: #2a2a3e;
+      color: #ccc;
+      border: 1px solid #444;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .quick-actions button:hover {
+      background: #333;
+      border-color: #555;
+    }
   </style>
 </head>
 <body>
@@ -98,14 +145,28 @@
 
   <div class="cat-grid">
     <div class="cat-option" data-cat="cat1">
+      <div class="checkbox-overlay">
+        <span class="checkmark">✓</span>
+      </div>
       <img src="assets/cat1.png" alt="Cat 1" />
     </div>
     <div class="cat-option" data-cat="cat2">
+      <div class="checkbox-overlay">
+        <span class="checkmark">✓</span>
+      </div>
       <img src="assets/cat2.png" alt="Cat 2" />
     </div>
     <div class="cat-option" data-cat="cat3">
+      <div class="checkbox-overlay">
+        <span class="checkmark">✓</span>
+      </div>
       <img src="assets/cat3.png" alt="Cat 3" />
     </div>
+  </div>
+
+  <div class="quick-actions">
+    <button id="select-all">모두 선택</button>
+    <button id="clear-all">모두 해제</button>
   </div>
 
   <script src="dist/popup.js"></script>
