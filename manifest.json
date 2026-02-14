@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Dot Cat Walker",
-  "version": "1.0.1",
-  "description": "A tiny pixel cat walks around on every page.",
+  "version": "2.0.0",
+  "description": "Multiple pixel cats walk around on every page.",
   "permissions": ["storage"],
   "action": {
     "default_title": "Toggle Cat Walker",
