@@ -489,7 +489,6 @@
         state.stateTimer -= dt;
       }
       if (state.stateTimer <= 0) {
-        console.log(cfg)
         if (cfg.speedMul > 0) {
           state.savedVx = state.vx / cfg.speedMul;
           state.savedVy = state.vy / cfg.speedMul;
