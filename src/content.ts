@@ -29,9 +29,9 @@
   }
   
   // ====== 랜덤 동작 설정 ======
-  const SLEEP_ARRAY = [CatState.SLEEP, CatState.SLEEP_2, CatState.SLEEP_3];
-  const DRAG_ARRAY = [CatState.DRAG, CatState.DRAG_2];
-  const ENTER_ARRAY = [CatState.ONENTER, CatState.ONENTER_2, CatState.ONENTER_3];
+  const SLEEP_ARRAY = [CatState.SLEEP, CatState.SLEEP_2, CatState.SLEEP_3]; // 수면 상태
+  const DRAG_ARRAY = [CatState.DRAG, CatState.DRAG_2]; // 드래그 상태
+  const ENTER_ARRAY = [CatState.ONENTER, CatState.ONENTER_2, CatState.ONENTER_3]; // Hover 상태
 
   type StateConfig = {
     row: number;
