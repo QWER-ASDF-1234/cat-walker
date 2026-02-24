@@ -18,9 +18,20 @@
     IDLE,
     WALK,
     SLEEP,
+    SLEEP_2,
+    SLEEP_3,
+    SLEEP_4,
     ONENTER,
+    ONENTER_2,
+    ONENTER_3,
     DRAG,
+    DRAG_2
   }
+  
+  // ====== 랜덤 동작 설정 ======
+  const SLEEP_ARRAY = [CatState.SLEEP, CatState.SLEEP_2, CatState.SLEEP_3];
+  const DRAG_ARRAY = [CatState.DRAG, CatState.DRAG_2];
+  const ENTER_ARRAY = [CatState.ONENTER, CatState.ONENTER_2, CatState.ONENTER_3];
 
   type StateConfig = {
     row: number;
@@ -60,11 +71,56 @@
       durationMin: 4,
       durationMax: 10,
     },
+    [CatState.SLEEP_2]: {
+      row: 14,
+      frameCount: 2,
+      frameOffset: 0,
+      fps: 2,
+      speedMul: 0,
+      durationMin: 4,
+      durationMax: 10,
+    },
+    [CatState.SLEEP_3]: {
+      row: 16,
+      frameCount: 2,
+      frameOffset: 0,
+      fps: 2,
+      speedMul: 0,
+      durationMin: 4,
+      durationMax: 10,
+    },
+    [CatState.SLEEP_4]: {
+      row: 18,
+      frameCount: 2,
+      frameOffset: 0,
+      fps: 2,
+      speedMul: 0,
+      durationMin: 4,
+      durationMax: 10,
+    },
     [CatState.ONENTER]: {
       row: 35,
       frameCount: 8,
       frameOffset: 0,
       fps: 10,
+      speedMul: 0,
+      durationMin: 4,
+      durationMax: 10,
+    },
+    [CatState.ONENTER_2]: {
+      row: 40,
+      frameCount: 11,
+      frameOffset: 0,
+      fps: 12,
+      speedMul: 0,
+      durationMin: 4,
+      durationMax: 10,
+    },
+    [CatState.ONENTER_3]: {
+      row: 41,
+      frameCount: 2,
+      frameOffset: 0,
+      fps: 2,
       speedMul: 0,
       durationMin: 4,
       durationMax: 10,
@@ -78,24 +134,44 @@
       durationMin: 0,
       durationMax: 0,
     },
+    [CatState.DRAG_2]: {
+      row: 43,
+      frameCount: 1,
+      frameOffset: 0,
+      fps: 1,
+      speedMul: 0,
+      durationMin: 0,
+      durationMax: 0,
+    },
   };
+  
+  let draggingState = CatState.DRAG;
+  let hoverState = CatState.ONENTER;
 
   function randRange(min: number, max: number) {
     return min + Math.random() * (max - min);
+  }
+
+  function getRandomState(arr: CatState[]) {
+    return arr[Math.floor(Math.random() * arr.length)];
   }
 
   function nextState(current: CatState): CatState {
     const r = Math.random();
     switch (current) {
       case CatState.WALK:
-        return r < 0.85 ? CatState.IDLE : CatState.WALK;
+        return r < 0.5 ? CatState.IDLE : CatState.WALK;
       case CatState.IDLE:
-        return r < 0.6 ? CatState.WALK : CatState.SLEEP;
+        return r < 0.6 ? CatState.WALK : getRandomState(SLEEP_ARRAY);
       case CatState.SLEEP:
-        return CatState.IDLE;
+      case CatState.SLEEP_2:
+      case CatState.SLEEP_3:
+      case CatState.SLEEP_4:
       case CatState.ONENTER:
-        return CatState.IDLE;
+      case CatState.ONENTER_2:
+      case CatState.ONENTER_3:
       case CatState.DRAG:
+      case CatState.DRAG_2:
         return CatState.IDLE;
     }
   }
@@ -337,11 +413,13 @@
     };
 
     const onMouseEnter = () => {
+      hoverState = getRandomState(ENTER_ARRAY);
       state.hovered = true;
       state.frame = 0;
       state.frameAcc = 0;
     };
     const onMouseLeave = () => {
+      hoverState = CatState.ONENTER;
       state.hovered = false;
       state.frame = 0;
       state.frameAcc = 0;
@@ -349,7 +427,9 @@
     cat.addEventListener("mouseenter", onMouseEnter);
     cat.addEventListener("mouseleave", onMouseLeave);
 
+    // TODO: 1. 여기서 글로벌 변수로 드래그 상태 선언
     const onMouseDown = (e: MouseEvent) => {
+      draggingState = getRandomState(DRAG_ARRAY);
       e.preventDefault();
       state.dragging = true;
       state.hovered = false;
@@ -365,8 +445,11 @@
       state.x = e.clientX - state.dragOffsetX;
       state.y = e.clientY - state.dragOffsetY;
     };
+
+    // TODO: 2. 여기서 글로벌 변수로 드래그 상태 해제 - default 상태로 변환
     const onMouseUp = () => {
       if (!state.dragging) return;
+      draggingState = CatState.DRAG;
       state.dragging = false;
       state.frame = 0;
       state.frameAcc = 0;
@@ -395,17 +478,18 @@
 
     function update(dt: number) {
       if (dt === 0) return; // 첫 프레임 스킵
-
+      
       const cfg = state.dragging
-        ? STATE_CONFIG[CatState.DRAG]
+        ? STATE_CONFIG[draggingState]
         : state.hovered
-          ? STATE_CONFIG[CatState.ONENTER]
+          ? STATE_CONFIG[hoverState]
           : STATE_CONFIG[state.catState];
 
       if (!state.hovered && !state.dragging) {
         state.stateTimer -= dt;
       }
       if (state.stateTimer <= 0) {
+        console.log(cfg)
         if (cfg.speedMul > 0) {
           state.savedVx = state.vx / cfg.speedMul;
           state.savedVy = state.vy / cfg.speedMul;
