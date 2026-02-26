@@ -29,7 +29,7 @@
   }
   
   // ====== 랜덤 동작 설정 ======
-  const SLEEP_ARRAY = [CatState.SLEEP, CatState.SLEEP_2, CatState.SLEEP_3]; // 수면 상태
+  const SLEEP_ARRAY = [CatState.SLEEP, CatState.SLEEP_2, CatState.SLEEP_3, CatState.SLEEP_4]; // 수면 상태
   const DRAG_ARRAY = [CatState.DRAG, CatState.DRAG_2]; // 드래그 상태
   const ENTER_ARRAY = [CatState.ONENTER, CatState.ONENTER_2, CatState.ONENTER_3]; // Hover 상태
 
@@ -145,8 +145,7 @@
     },
   };
   
-  let draggingState = CatState.DRAG;
-  let hoverState = CatState.ONENTER;
+  // draggingState, hoverState는 각 인스턴스별로 CatState_Runtime에서 관리
 
   function randRange(min: number, max: number) {
     return min + Math.random() * (max - min);
@@ -202,6 +201,8 @@
     inCursorRange: boolean;
     originalSavedVx?: number;
     originalSavedVy?: number;
+    draggingState: CatState;
+    hoverState: CatState;
   };
 
   type CatInstance = {
@@ -410,16 +411,18 @@
       inCursorRange: false,
       originalSavedVx: undefined,
       originalSavedVy: undefined,
+      draggingState: CatState.DRAG,
+      hoverState: CatState.ONENTER,
     };
 
     const onMouseEnter = () => {
-      hoverState = getRandomState(ENTER_ARRAY);
+      state.hoverState = getRandomState(ENTER_ARRAY);
       state.hovered = true;
       state.frame = 0;
       state.frameAcc = 0;
     };
     const onMouseLeave = () => {
-      hoverState = CatState.ONENTER;
+      state.hoverState = CatState.ONENTER;
       state.hovered = false;
       state.frame = 0;
       state.frameAcc = 0;
@@ -427,37 +430,33 @@
     cat.addEventListener("mouseenter", onMouseEnter);
     cat.addEventListener("mouseleave", onMouseLeave);
 
-    // TODO: 1. 여기서 글로벌 변수로 드래그 상태 선언
+    const onMouseMove = (e: MouseEvent) => {
+      state.x = e.clientX - state.dragOffsetX;
+      state.y = e.clientY - state.dragOffsetY;
+    };
+    const onMouseUp = () => {
+      state.draggingState = CatState.DRAG;
+      state.dragging = false;
+      state.frame = 0;
+      state.frameAcc = 0;
+      cat.style.cursor = "pointer";
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+    };
     const onMouseDown = (e: MouseEvent) => {
-      draggingState = getRandomState(DRAG_ARRAY);
+      state.draggingState = getRandomState(DRAG_ARRAY);
       e.preventDefault();
       state.dragging = true;
       state.hovered = false;
       state.frame = 0;
       state.frameAcc = 0;
-      // 고양이 좌상단 기준 마우스 오프셋 저장
       state.dragOffsetX = e.clientX - state.x;
       state.dragOffsetY = e.clientY - state.y;
       cat.style.cursor = "grabbing";
-    };
-    const onMouseMove = (e: MouseEvent) => {
-      if (!state.dragging) return;
-      state.x = e.clientX - state.dragOffsetX;
-      state.y = e.clientY - state.dragOffsetY;
-    };
-
-    // TODO: 2. 여기서 글로벌 변수로 드래그 상태 해제 - default 상태로 변환
-    const onMouseUp = () => {
-      if (!state.dragging) return;
-      draggingState = CatState.DRAG;
-      state.dragging = false;
-      state.frame = 0;
-      state.frameAcc = 0;
-      cat.style.cursor = "pointer";
+      document.addEventListener("mousemove", onMouseMove);
+      document.addEventListener("mouseup", onMouseUp);
     };
     cat.addEventListener("mousedown", onMouseDown);
-    document.addEventListener("mousemove", onMouseMove);
-    document.addEventListener("mouseup", onMouseUp);
 
     function enterState(ns: CatState) {
       state.catState = ns;
@@ -480,9 +479,9 @@
       if (dt === 0) return; // 첫 프레임 스킵
       
       const cfg = state.dragging
-        ? STATE_CONFIG[draggingState]
+        ? STATE_CONFIG[state.draggingState]
         : state.hovered
-          ? STATE_CONFIG[hoverState]
+          ? STATE_CONFIG[state.hoverState]
           : STATE_CONFIG[state.catState];
 
       if (!state.hovered && !state.dragging) {
@@ -633,6 +632,7 @@
       cat.removeEventListener("mouseenter", onMouseEnter);
       cat.removeEventListener("mouseleave", onMouseLeave);
       cat.removeEventListener("mousedown", onMouseDown);
+      // 드래그 중 정리될 경우를 대비해 document 리스너도 제거
       document.removeEventListener("mousemove", onMouseMove);
       document.removeEventListener("mouseup", onMouseUp);
       root.remove();
