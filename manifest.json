@@ -4,9 +4,19 @@
   "version": "3.1.1",
   "description": "Multiple interactive pixel cats walk around on every page.",
   "permissions": ["storage"],
+  "icons": {
+    "16": "assets/icons/icon16.png",
+    "48": "assets/icons/icon48.png",
+    "128": "assets/icons/icon128.png"
+  },
   "action": {
     "default_title": "Toggle Cat Walker",
-    "default_popup": "popup.html"
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "assets/icons/icon16.png",
+      "48": "assets/icons/icon48.png",
+      "128": "assets/icons/icon128.png"
+    }
   },
   "background": {
     "service_worker": "dist/background.js",
